@@ -1,8 +1,12 @@
+from math import nan
 import streamlit as st
+from streamlit import session_state as ss
 import pandas as pd
-from pydantic import BaseModel
-from typing import List, Sequence
+from pydantic import BaseModel, Field
+from typing import Annotated, List, Optional, Sequence
 import altair as alt
+from datetime import date, timedelta
+from dateutil.relativedelta import relativedelta
 
 
 class Payer(BaseModel):
@@ -12,9 +16,9 @@ class Payer(BaseModel):
 
 
 class Aporte(BaseModel):
-    mes: int
-    pagador: str
-    valor: float
+    mes: Optional[int]
+    pagador: Optional[str]
+    valor: Annotated[float, Field(strict=False, allow_inf_nan=True)]
 
 
 # Default payers with initial contribution
@@ -61,6 +65,7 @@ def calculate_individual_sac_tables(
                 [
                     p.payer,
                     mes,
+                    (ss.data_inicio_pagamento + relativedelta(months=mes)).strftime("%Y-%m"),
                     saldo_atual,
                     amortizacao_mensal,
                     juros_mes,
@@ -72,6 +77,7 @@ def calculate_individual_sac_tables(
             dados,
             columns=[
                 "Pagador",
+                "Mês_i",
                 "Mês",
                 "Saldo Devedor",
                 "Amortização",
@@ -119,6 +125,18 @@ def main():
     taxa_juros_anual = st.number_input("Taxa de Juros Anual (%)", value=7.5, step=0.1)
     prazo_meses = st.number_input("Duração (meses)", value=120, step=1)
 
+    def last_day_of_next_month():
+        today = date.today()
+        first_day_next_month = date(
+            today.year + today.month // 12, today.month % 12 + 1, 1
+        )
+        last_day_next_month = first_day_next_month + timedelta(days=-1)
+        return last_day_next_month
+
+    ss.data_inicio_pagamento = st.date_input(
+        "Data de Início do Pagamento", value=last_day_of_next_month()
+    )
+
     # Section 2: Entradas (Down Payments)
 
     col1, col2 = st.columns(2)
@@ -131,21 +149,21 @@ def main():
                 label="Saldo", format="R$ %.0f"
             ),
         }
-        saldos_df = pd.DataFrame(
+        ss.saldos_df = pd.DataFrame(
             [e.model_dump() for e in st.session_state.saldos_devedores]
         )
-        entradas_df = st.data_editor(
-            saldos_df,
+        ss.entradas_df = st.data_editor(
+            ss.saldos_df,
             column_config=col_config,
             num_rows="dynamic",
             key="entradas_changes",
             hide_index=True,
         )
-        if not entradas_df.equals(saldos_df):
+        if not ss.entradas_df.equals(ss.saldos_df):
             st.session_state.saldos_devedores = update_saldo(
                 [
                     Payer(**e)
-                    for e in entradas_df.to_dict(orient="records")
+                    for e in ss.entradas_df.to_dict(orient="records")
                     if e["payer"]
                 ]
             )
@@ -157,19 +175,21 @@ def main():
         col_config = {
             "mes": st.column_config.NumberColumn(label="Mês"),
             "pagador": st.column_config.SelectboxColumn(
-                label="Pagador", options=entradas_df["payer"].tolist()
+                label="Pagador", options=ss.entradas_df["payer"].tolist()
             ),
             "valor": st.column_config.NumberColumn(label="Valor"),
         }
         aportes_df = pd.DataFrame([a.model_dump() for a in st.session_state.aportes])
         aportes_modified = st.data_editor(
-            aportes_df, num_rows="dynamic", column_config=col_config
+            aportes_df,
+            num_rows="dynamic",
+            column_config=col_config,
+            key="aportes_changes",
         )
-        if not aportes_df.equals(aportes_modified):
+        # check if a complete row was added
+        if not aportes_modified.equals(aportes_df):
             st.session_state.aportes = [
-                Aporte(**a)
-                for a in aportes_modified.to_dict(orient="records")
-                if a["mes"] and a["pagador"] and a["valor"]
+                Aporte(**a) for a in aportes_modified.to_dict(orient="records")
             ]
             st.rerun()
 
@@ -191,6 +211,23 @@ def main():
     )
     st.altair_chart(c)
 
+    # Shows when each payer will have its last payment
+    last_payment = results_pd.groupby("Pagador")["Mês_i"].max().to_dict()
+    st.subheader("Último pagamento de cada pagador:")
+
+    # display, calculating the year and month in the future
+    last_payment_data = []
+    for payer, df in resultados.items():
+        last_non_zero_month = df[df["Saldo Devedor"] > 0]["Mês_i"].max()
+        last_payment_data.append(
+            {
+                "Pagador": payer,
+                "Último Mês de Pagamento": (ss.data_inicio_pagamento + relativedelta(months=last_non_zero_month)).strftime("%B/%Y"),
+            }
+        )
+    last_payment_df = pd.DataFrame(last_payment_data)
+    st.dataframe(last_payment_df, hide_index=True)
+
     # Display Results
 
     st.subheader("Tabelas de Pagamentos Individuais (Sistema SAC)")
@@ -198,6 +235,7 @@ def main():
     for payer, df_sac in resultados.items():
         col_config = {
             "Pagador": None,
+            "Mês_i": st.column_config.NumberColumn(label="Parcela"),
             "Saldo Devedor": st.column_config.ProgressColumn(
                 label="Saldo Devedor",
                 format="R$ %.0f",
