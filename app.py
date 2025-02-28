@@ -1,4 +1,5 @@
 from math import nan
+import math
 import streamlit as st
 from streamlit import session_state as ss
 import pandas as pd
@@ -16,7 +17,7 @@ class Payer(BaseModel):
 
 
 class Aporte(BaseModel):
-    mes: Optional[int]
+    mes: Annotated[float, Field(strict=False, allow_inf_nan=True)]
     pagador: Optional[str]
     valor: Annotated[float, Field(strict=False, allow_inf_nan=True)]
 
@@ -56,7 +57,8 @@ def calculate_individual_sac_tables(
 
             aportes_mes = [a for a in aportes if a.mes == mes and p.payer == a.pagador]
             for aporte in aportes_mes:
-                saldo_atual -= aporte.valor
+                if not math.isnan(aporte.valor):
+                    saldo_atual -= aporte.valor
 
             if saldo_atual < 0:
                 saldo_atual = 0
@@ -65,7 +67,9 @@ def calculate_individual_sac_tables(
                 [
                     p.payer,
                     mes,
-                    (ss.data_inicio_pagamento + relativedelta(months=mes)).strftime("%Y-%m"),
+                    (ss.data_inicio_pagamento + relativedelta(months=mes)).strftime(
+                        "%Y-%m"
+                    ),
                     saldo_atual,
                     amortizacao_mensal,
                     juros_mes,
@@ -222,7 +226,9 @@ def main():
         last_payment_data.append(
             {
                 "Pagador": payer,
-                "Último Mês de Pagamento": (ss.data_inicio_pagamento + relativedelta(months=last_non_zero_month)).strftime("%B/%Y"),
+                "Último Mês de Pagamento": (
+                    ss.data_inicio_pagamento + relativedelta(months=last_non_zero_month)
+                ).strftime("%B/%Y"),
             }
         )
     last_payment_df = pd.DataFrame(last_payment_data)
