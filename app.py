@@ -24,15 +24,15 @@ class Aporte(BaseModel):
 
 # Default payers with initial contribution
 default_payers = [
-    Payer(payer="Half", entrada=50000),
-    Payer(payer="Karl", entrada=50000),
-    Payer(payer="Herbert", entrada=50000),
+    Payer(payer="Pagador 1", entrada=50000),
+    Payer(payer="Pagador 2", entrada=50000),
+    Payer(payer="Pagador 3", entrada=50000),
 ]
 
 aportes_default = [
-    Aporte(mes=6, pagador="Karl", valor=10000.0),
-    Aporte(mes=12, pagador="Half", valor=20000.0),
-    Aporte(mes=24, pagador="Herbert", valor=30000.0),
+    Aporte(mes=6, pagador="Pagador 1", valor=10000.0),
+    Aporte(mes=12, pagador="Pagador 2", valor=20000.0),
+    Aporte(mes=24, pagador="Pagador 3", valor=30000.0),
 ]
 
 st.session_state.saldo_total = 450000
